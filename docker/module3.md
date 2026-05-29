@@ -1,7 +1,7 @@
 
 ---
 
-# Module 3: Docker Images, Containers, & Lifecycle Management
+# Module 3: Docker Images, Containers, & Lifecycle Management 
 
 This documentation covers how Docker handles data and applications under the hood, detailing the structural anatomy of image layers, standard lifecycle transitions, container runtime states, and data volatility.
 
