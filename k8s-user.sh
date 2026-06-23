@@ -1,71 +1,72 @@
 #!/bin/bash
+set -e
 
-# Check for root privileges
-if [ "$EUID" -ne 0 ]; then
-  echo "Error: Please run this script with 'sudo'."
-  exit 1
-fi
+# CLI UI Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0;0m'
 
-echo "=========================================="
-echo "      Ready-to-Use User & CSR Creator     "
-echo "=========================================="
+echo -e "${BLUE}==================================================${NC}"
+echo -e "${BLUE}    Professional Kubernetes User Asset Creator    ${NC}"
+echo -e "${BLUE}==================================================${NC}"
 
-# 1. Ask for Inputs
-read -p "Enter Username: " USERNAME
-read -p "Enter Group Name: " GROUPNAME
-read -s -p "Enter Password for $USERNAME: " PASSWORD
-echo "" 
-
-# Validation
-if [ -z "$USERNAME" ] || [ -z "$GROUPNAME" ] || [ -z "$PASSWORD" ]; then
-    echo "Error: Username, Group, and Password cannot be empty!"
+# 1. Ask for Username (Mandatory)
+read -p "Enter Kubernetes Username (CN): " K8S_USER
+if [ -z "$K8S_USER" ]; then
+    echo -e "\033[0;31mError: Username cannot be empty.\033[0;0m"
     exit 1
 fi
 
-# 2. Create Group if it doesn't exist
-if getent group "$GROUPNAME" > /dev/null 2>&1; then
-    echo "Group '$GROUPNAME' already exists."
-else
-    groupadd "$GROUPNAME"
-    echo "Group '$GROUPNAME' created successfully."
+# 2. Ask for Group (Optional)
+SUBJ_GROUPS=""
+read -p "Do you want to assign a Kubernetes Group (O)? (y/N): " ATTACH_GROUP
+
+if [[ "$ATTACH_GROUP" =~ ^[Yy]$ ]]; then
+    read -p "Enter Group Name: " GROUP_NAME
+    if [ ! -z "$GROUP_NAME" ]; then
+        SUBJ_GROUPS="/O=$GROUP_NAME"
+    fi
 fi
 
-# 3. Create User
-if id "$USERNAME" > /dev/null 2>&1; then
-    echo "Error: User '$USERNAME' already exists!"
-    exit 1
+# 3. Setup Directory
+OUTPUT_DIR="./k8s_users/$K8S_USER"
+mkdir -p "$OUTPUT_DIR"
+
+# 4. Generate Cryptographic Keys in Background
+echo -e "\n${YELLOW}Generating assets in background...${NC}"
+
+# Private Key Generation
+openssl genrsa -out "$OUTPUT_DIR/${K8S_USER}.key" 2048 2>/dev/null
+chmod 600 "$OUTPUT_DIR/${K8S_USER}.key"
+
+# CSR Generation (Maps perfectly to K8s RBAC via CN and O)
+openssl req -new \
+    -key "$OUTPUT_DIR/${K8S_USER}.key" \
+    -out "$OUTPUT_DIR/${K8S_USER}.csr" \
+    -subj "/CN=${K8S_USER}${SUBJ_GROUPS}"
+
+echo -e "${GREEN}Task Completed Successfully!${NC}"
+echo -e "Files saved at: $OUTPUT_DIR/\n"
+
+# 5. Dynamic Minimal Line Diagram showing what was accomplished
+echo -e "${BLUE}==================================================${NC}"
+echo -e "${GREEN}         VISUAL FLOW OF WORK COMPLETED            ${NC}"
+echo -e "${BLUE}==================================================${NC}"
+echo -e "   [INPUTS]  -->  Username: ${GREEN}$K8S_USER${NC}"
+if [ ! -z "$GROUP_NAME" ]; then
+echo -e "                  Group:    ${GREEN}$GROUP_NAME${NC}"
 else
-    useradd -m -g "$GROUPNAME" -s /bin/bash "$USERNAME"
-    echo "$USERNAME:$PASSWORD" | chpasswd
-    echo "User '$USERNAME' created and added to group '$GROUPNAME'."
+echo -e "                  Group:    ${YELLOW}None (Skipped)${NC}"
 fi
-
-# 4. Generate CSR in Background
-echo "Generating CSR in the background..."
-TARGET_DIR="/home/$USERNAME/certs"
-mkdir -p "$TARGET_DIR"
-
-# OpenSSL details (Default values)
-COUNTRY="IN"
-STATE="Rajasthan"
-LOCATION="Jaipur"
-ORGANIZATION="MyCompany"
-ORG_UNIT="IT"
-COMMON_NAME="$USERNAME.local"
-
-openssl req -new -newkey rsa:2048 -nodes \
-  -keyout "$TARGET_DIR/$USERNAME.key" \
-  -out "$TARGET_DIR/$USERNAME.csr" \
-  -subj "/C=$COUNTRY/ST=$STATE/L=$LOCATION/O=$ORGANIZATION/OU=$ORG_UNIT/CN=$COMMON_NAME" > /dev/null 2>&1
-
-# Fix permissions
-chown -R "$USERNAME:$GROUPNAME" "$TARGET_DIR"
-chmod 700 "$TARGET_DIR"
-chmod 600 "$TARGET_DIR/$USERNAME.key"
-
-echo "=========================================="
-echo "SUCCESS!"
-echo "User and Group are ready."
-echo "CSR File: $TARGET_DIR/$USERNAME.csr"
-echo "Key File: $TARGET_DIR/$USERNAME.key"
-echo "=========================================="
+echo -e "                     │"
+echo -e "                     ▼ (Background Cryptography)"
+echo -e "   [OUTPUTS] -->  ${BLUE}${K8S_USER}.key${NC} (Secure Private Key)"
+echo -e "                  ${BLUE}${K8S_USER}.csr${NC} (Certificate Request)"
+echo -e "                     │"
+echo -e "                     ▼ (How K8s RBAC Maps This)"
+echo -e "   [RBAC MAP] ->  ${GREEN}User${NC} in RoleBinding  == ${BLUE}CN (${K8S_USER})${NC}"
+if [ ! -z "$GROUP_NAME" ]; then
+echo -e "                  ${GREEN}Group${NC} in RoleBinding == ${BLUE}O (${GROUP_NAME})${NC}"
+fi
+echo -e "${BLUE}==================================================${NC}"
